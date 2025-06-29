@@ -1601,6 +1601,7 @@ bcg3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family = gaussian, data= bcg) 
 summary(bcg3)
 check_collinearity(bcg3)
+check_overdispersion(simulate_residuals(bcg3)) # no overdispersion
 res <- simulateResiduals(bcg3) 
 plot(res, asFactor = F)  # good - use this model
 
@@ -1648,6 +1649,7 @@ crl2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=crl)
 summary(crl2)
 check_collinearity(crl2)
+check_overdispersion(simulate_residuals(crl2)) # no overdispersion
 res <- simulateResiduals(crl2) 
 plot(res, asFactor = F) # good - use this model
 
@@ -1690,6 +1692,7 @@ det2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=det)
 summary(det2)
 check_collinearity(det2)
+check_overdispersion(simulate_residuals(det2)) # no overdispersion
 res <- simulateResiduals(det2) 
 plot(res, asFactor = F) # pattern for higher values
 
@@ -1708,6 +1711,7 @@ det3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=det)
 summary(det3)
 check_collinearity(det3)
+check_overdispersion(simulate_residuals(det3)) # no overdispersion
 res <- simulateResiduals(det3)
 plot(res, asFactor = F) # ok - slightly higher upper quantile, but good spread of points
 
@@ -1776,6 +1780,7 @@ exc3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=exc)
 summary(exc3)
 check_collinearity(exc3)
+check_overdispersion(simulate_residuals(exc3)) # no overdispersion
 res <- simulateResiduals(exc3) 
 plot(res, asFactor = F) 
 
@@ -1816,6 +1821,7 @@ inv2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=inv)
 summary(inv2)
 check_collinearity(inv2)
+check_overdispersion(simulate_residuals(inv2)) # no overdispersion
 res <- simulateResiduals(inv2) 
 plot(res, asFactor = F) #
 
@@ -1855,6 +1861,7 @@ pis2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=pis)
 summary(pis2)
 check_collinearity(pis2)
+check_overdispersion(simulate_residuals(pis2)) # no overdispersion
 res <- simulateResiduals(pis2) 
 plot(res, asFactor = F) #
 
@@ -1902,6 +1909,7 @@ plk2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s +
                 family=gaussian, data=plk)
 summary(plk2)
 check_collinearity(plk2)
+check_overdispersion(simulate_residuals(plk2)) # no overdispersion
 res <- simulateResiduals(plk2) 
 plot(res, asFactor = F) # good
 
