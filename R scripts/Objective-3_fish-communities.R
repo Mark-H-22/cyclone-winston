@@ -6,6 +6,8 @@ library(ggpubr)
 library(lattice)
 library(performance)
 library(lme4)
+library(glmmTMB)
+library(DHARMa)
 library(sjPlot)
 
 MyTheme <- theme(axis.title=element_text(size=13), axis.text=element_text(size=10),
@@ -164,7 +166,8 @@ fams14.bio <- ggplot(data=fish14ii[which(fish14ii$Year==2014),],
 fams14.bio
 
 
-# Remove Observer 2 from 2014:
+# Remove Observer 2 from 2014 (not WCS survey trained and high 
+# length estimates skewing biomass estimates):
 fish1 <- fish1[-which(fish1$Observers=="Observer 2"),]
 
 
@@ -892,7 +895,7 @@ all
 
 ### GLMMs for reef fish associations with benthic state
 
-
+### DATA MANIPULATION ###
 
 
 # Handy functions from Highland Statistics:
@@ -922,9 +925,6 @@ Mypairs <- function(Z) {
 }
 
 
-
-
-### DATA MANIPULATION ###
 
 fish <- read.csv("data/fish_full_new.csv") 
 head(fish)
@@ -1569,44 +1569,62 @@ xyplot(Biomass_kgha ~ rubble.s | Fishery,
 hist(bcg$Biomass_kgha, breaks=50) # right-skewed
 hist(log(bcg$Biomass_kgha+1), breaks=50) #better
 
+
 bcg1 <- lmer(Biomass_kgha ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + Fishery + 
                (1|Year) + (1|Site), data=bcg)
 summary(bcg1)
 plot(bcg1)  # unequal variances - try log of response
 
+
 # also include Observer as a FIXED effect (random not appropriate as some
 # samplers were only involved in one or two years)
 bcg2 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
-               Fishery + Observer + (1|Year) + (1|Site), data=bcg)
+               Fishery + (1|Year) + (1|Site) + Observer, data=bcg)
 summary(bcg2)
 ( bcg.res <- plot(bcg2) )  # good
 
 Eb2 <- resid(bcg2, type="pearson")
 hist(Eb2, breaks=50) # good
 
-par(mar = rep(3, 4))
-qqnorm(resid(bcg2))
-qqline(resid(bcg2)) 
-( bcg.qq <- recordPlot() )
-dev.off()
-
 check_collinearity(bcg2)
 # all VIF <3
+qqnorm(resid(bcg2))
+qqline(resid(bcg2))  # a bit off
+#( bcg.qq <- recordPlot() )
+#dev.off()
 
-( bcg.f <- plot_model(bcg2, show.values=F,
+
+# Try with glmmTMB to help deal with potential normality issues:
+bcg3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer, 
+                zi=~0,
+                family = gaussian, data= bcg) 
+summary(bcg3)
+check_collinearity(bcg3)
+res <- simulateResiduals(bcg3) 
+plot(res, asFactor = F)  # good - use this model
+
+
+( bcg.f <- plot_model(bcg3, show.values=F,
                       value.offset = .2, vline.color = "gray") )
+# Positive effect of BCM on biomass. 
+# (code for plots with only variables of interest further down script)
 
-# random effects:
-bcg.r <- plot_model(bcg2, type="re", line.size=1, dot.size=3,
+bcg.r <- plot_model(bcg3, type="re", line.size=1, dot.size=3,
                     vline.color="gray70") 
 bcg.r[1]
+tab_model(bcg3)
 bcg.r[2]
+
+
 
 
 # CORALLIVORE
 
 hist(crl$Biomass_kgha, breaks=50) #right-skewed
-hist(log(crl$Biomass_kgha+1), breaks=50) # lots of 0s
+hist(log(crl$Biomass_kgha+1), breaks=50) # lots of 0s - include zi=1
+#need to use zero-inflated and not hurdle model, as 0s are likely a mix
+# of true 0s (fish not present) and 'false' 0s (fish not detected during survey)
 
 crl1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=crl)
@@ -1614,92 +1632,170 @@ summary(crl1)
 ( crl.res <- plot(crl1) ) # ok (line due to zeros)
 
 Ec1 <- resid(crl1, type="pearson")
-hist(Ec1, breaks=50) # good
-
-qqnorm(resid(crl1))
-qqline(resid(crl1))
-( crl.qq <- recordPlot() )
-dev.off()
+hist(Ec1, breaks=50) # ok
 
 check_collinearity(crl1)
 #all VIF <3
+qqnorm(resid(crl1))
+qqline(resid(crl1))
+#( crl.qq <- recordPlot() )
+#dev.off()
 
-( crl.f <- plot_model(crl1, show.values=F,
+
+crl2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~1, # due to many zeros
+                family=gaussian, data=crl)
+summary(crl2)
+check_collinearity(crl2)
+res <- simulateResiduals(crl2) 
+plot(res, asFactor = F) # good - use this model
+
+
+( crl.f <- plot_model(crl2, show.values=F,
                       value.offset = .2, vline.color = "gray") )
+# Positive effect of HC. Negative effect of rubble.
 
-# random effects
-crl.r <- plot_model(crl1, type="re", line.size=1, dot.size=3,
+crl.r <- plot_model(crl2, type="re", line.size=1, dot.size=3,
                     vline.color="gray70") 
 crl.r[1]
+tab_model(crl2)
 crl.r[2]
+
+
 
 
 # DETRITIVORE
 
 hist(det$Biomass_kgha, breaks=50) #right-skewed
-hist(log(det$Biomass_kgha+1), breaks=50)  # lots of 0s
+hist(log(det$Biomass_kgha+1), breaks=50)  # lots of 0s. Include zi=1
 
 det1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=det)
 summary(det1)
-( det.res <- plot(det1) )  # ok - line from the zeros
+( det.res <- plot(det1) )  # line of points from the zeros. Most non-zero data above 0
 
 Ed1 <- resid(det1, type="pearson")
-hist(Ed1, breaks=50) # ok 
-
-qqnorm(resid(det1))
-qqline(resid(det1)) 
-( det.qq <- recordPlot() )
-dev.off()
+hist(Ed1, breaks=50) # left-skewed 
 
 check_collinearity(det1)
 # all VIF <3
+qqnorm(resid(det1))
+qqline(resid(det1)) # a bit off
 
-( det.f <- plot_model(det1, show.values=F,
+
+det2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~1, 
+                family=gaussian, data=det)
+summary(det2)
+check_collinearity(det2)
+res <- simulateResiduals(det2) 
+plot(res, asFactor = F) # pattern for higher values
+
+plotResiduals(det2, form=det$HC.s)
+plotResiduals(det2, form=det$MA.s) # lower res when more macroalgae
+plotResiduals(det2, form=det$TA.s)
+plotResiduals(det2, form=det$BCM.s)
+plotResiduals(det2, form=det$rubble.s) # lower res when more rubble
+
+
+# account for Macroalgae & Rubble specifically in zi model (more 
+# likely to generate zero values in data):
+det3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~MA.s+rubble.s, 
+                family=gaussian, data=det)
+summary(det3)
+check_collinearity(det3)
+res <- simulateResiduals(det3)
+plot(res, asFactor = F) # ok - slightly higher upper quantile, but good spread of points
+
+
+det4 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~MA.s+rubble.s,
+                family=tweedie, data=det)
+summary(det4)
+check_collinearity(det4)
+res <- simulateResiduals(det4) 
+plot(res, asFactor = F) #no difference with tweedie
+
+
+# use det3 model
+( det.f <- plot_model(det3, show.values=F,
                       value.offset = .2, vline.color = "gray") )
 
-# random effects
-det.r <- plot_model(det1, type="re", line.size=1, dot.size=3,
+det.r <- plot_model(det3, type="re", line.size=1, dot.size=3,
                     vline.color="gray70")
 det.r[1]
+tab_model(det3)
 det.r[2]
+
+
 
 
 # EXCAVATOR/SCRAPER
 
 hist(exc$Biomass_kgha, breaks=50) #right-skewed
-hist(log(exc$Biomass_kgha+1), breaks=50) #ok
+hist(log(exc$Biomass_kgha+1), breaks=50) #ok - zi = 1
 
 exc1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=exc)
 summary(exc1)
-( exc.res <- plot(exc1) )  # good
+( exc.res <- plot(exc1) )  # ok
 
 Ee1 <- resid(exc1, type="pearson")
 hist(Ee1, breaks=50) # ok
 
-qqnorm(resid(exc1))
-qqline(resid(exc1)) 
-( exc.qq <- recordPlot() )
-dev.off()
-
 check_collinearity(exc1)
 # all VIF <3
+qqnorm(resid(exc1))
+qqline(resid(exc1)) # bad at lower end (probably due to zeros)
 
-( exc.f <- plot_model(exc1, show.values=F,
+
+exc2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~1,
+                family=gaussian, data=exc)
+summary(exc2)
+check_collinearity(exc2)
+res <- simulateResiduals(exc2) 
+plot(res, asFactor = F) #
+
+plotResiduals(exc2, form=exc$HC.s)
+plotResiduals(exc2, form=exc$MA.s) # lower res when more macroalgae
+plotResiduals(exc2, form=exc$TA.s)
+plotResiduals(exc2, form=exc$BCM.s)
+plotResiduals(exc2, form=exc$rubble.s)
+
+# Account for Macroalgae in zi model:
+exc3 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~MA.s,
+                family=gaussian, data=exc)
+summary(exc3)
+check_collinearity(exc3)
+res <- simulateResiduals(exc3) 
+plot(res, asFactor = F) 
+
+
+( exc.f <- plot_model(exc3, show.values=F,
                       value.offset = .2, vline.color = "gray") )
 
-# random effects
-exc.r <- plot_model(exc1, type="re", line.size=1, dot.size=3,
+exc.r <- plot_model(exc3, type="re", line.size=1, dot.size=3,
                     vline.color="gray70")
 exc.r[1]
+tab_model(exc3)
 exc.r[2]
+
+
 
 
 # INVERTIVORE
 
 hist(inv$Biomass_kgha, breaks=50) #right-skewed
-hist(log(inv$Biomass_kgha+1), breaks=50) #ok
+hist(log(inv$Biomass_kgha+1), breaks=50) #ok - zi = 0 in model
 
 inv1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=inv)
@@ -1709,28 +1805,36 @@ summary(inv1)
 Ei1 <- resid(inv1, type="pearson")
 hist(Ei1, breaks=50) # good
 
-qqnorm(resid(inv1))
-qqline(resid(inv1)) 
-( inv.qq <- recordPlot() )
-dev.off()
-
 check_collinearity(inv1)
 # all VIF <3
+qqnorm(resid(inv1))
+qqline(resid(inv1)) # ok
 
-( inv.f <- plot_model(inv1, show.values=F,
+inv2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~0,
+                family=gaussian, data=inv)
+summary(inv2)
+check_collinearity(inv2)
+res <- simulateResiduals(inv2) 
+plot(res, asFactor = F) #
+
+( inv.f <- plot_model(inv2, show.values=F,
                       value.offset = .2, vline.color = "gray") )
 
-# random effects
-inv.r <- plot_model(inv1, type="re", line.size=1, dot.size=3,
+inv.r <- plot_model(inv2, type="re", line.size=1, dot.size=3,
                     vline.color="gray70")
 inv.r[1]
+tab_model(inv2)
 inv.r[2]
+
+
 
 
 # PISCIVORE
 
 hist(pis$Biomass_kgha, breaks=50) #right-skewed
-hist(log(pis$Biomass_kgha+1), breaks=50) #ok
+hist(log(pis$Biomass_kgha+1), breaks=50) # include zi =1
 
 pis1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=pis)
@@ -1738,30 +1842,45 @@ summary(pis1)
 ( pis.res <- plot(pis1) )  # good
 
 Ei1 <- resid(pis1, type="pearson")
-hist(Ei1, breaks=50) # good
-
-qqnorm(resid(pis1))
-qqline(resid(pis1))
-( pis.qq <- recordPlot() )
-dev.off()
+hist(Ei1, breaks=50) # ok
 
 check_collinearity(pis1)
 # all VIF <3
+qqnorm(resid(pis1))
+qqline(resid(pis1)) # ok
 
-( pis.f <- plot_model(pis1, show.values=F,
+pis2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~1,
+                family=gaussian, data=pis)
+summary(pis2)
+check_collinearity(pis2)
+res <- simulateResiduals(pis2) 
+plot(res, asFactor = F) #
+
+plotResiduals(pis2, form=pis$HC.s)
+plotResiduals(pis2, form=pis$MA.s)
+plotResiduals(pis2, form=pis$TA.s)
+plotResiduals(pis2, form=pis$BCM.s)
+plotResiduals(pis2, form=pis$rubble.s)
+#all fine
+
+( pis.f <- plot_model(pis2, show.values=F,
                       value.offset = .2, vline.color = "gray") )
 
-# random effects
-pis.r <- plot_model(pis1, type="re", line.size=1, dot.size=3,
+pis.r <- plot_model(pis2, type="re", line.size=1, dot.size=3,
                     vline.color="gray70")
 pis.r[1]
+tab_model(pis2)
 pis.r[2]
+
+
 
 
 # PLANKTIVORE
 
 hist(plk$Biomass_kgha, breaks=50) #right-skewed
-hist(log(plk$Biomass_kgha+1), breaks=50) # lots of zeros
+hist(log(plk$Biomass_kgha+1), breaks=50) # lots of zeros - include zi=1
 
 plk1 <- lmer(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
                Fishery + (1|Year) + (1|Site) + Observer, data=plk)
@@ -1771,32 +1890,41 @@ summary(plk1)
 
 Ep1 <- resid(plk1, type="pearson")
 hist(Ep1, breaks=50) # left-skewed
-
-qqnorm(resid(plk1))
-qqline(resid(plk1))
-( plk.qq <- recordPlot() )
-dev.off()
-
 check_collinearity(plk1)
 # all VIF <3
 
-( plk.f <- plot_model(plk1, show.values=F,
+qqnorm(resid(plk1))
+qqline(resid(plk1)) # not good
+
+plk2 <- glmmTMB(log(Biomass_kgha+1) ~ HC.s + MA.s + TA.s + BCM.s + rubble.s + 
+                  Fishery + (1|Year) + (1|Site) + Observer,
+                zi=~1,
+                family=gaussian, data=plk)
+summary(plk2)
+check_collinearity(plk2)
+res <- simulateResiduals(plk2) 
+plot(res, asFactor = F) # good
+
+
+( plk.f <- plot_model(plk2, show.values=F,
                       value.offset = .2, vline.color = "gray") )
 
-# random effects
-plk.r <- plot_model(plk1, type="re", line.size=1, dot.size=3,
+plk.r <- plot_model(plk2, type="re", line.size=1, dot.size=3,
                     vline.color="gray70")
 plk.r[1]
+tab_model(plk2)
 plk.r[2] 
 
 
 
 
-### Plot fixed effects for Figure 7:
+
+
+### Plot fixed effects for main figure:
 
 unique(bcg$Fishery) # "Fished"    "Protected"
 
-bcg.fixed <- plot_model(bcg2, line.size=1, dot.size=3, 
+bcg.fixed <- plot_model(bcg3, line.size=1, dot.size=3, 
                         value.offset=0.2, title="Browser/cropper/grazer", 
                         vline.color="gray70", 
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1808,7 +1936,9 @@ bcg.fixed <- plot_model(bcg2, line.size=1, dot.size=3,
 bcg.fixed 
 
 
-crl.fixed <- plot_model(crl1, line.size=1, 
+
+
+crl.fixed <- plot_model(crl2, line.size=1, 
                         dot.size=3, value.offset=0.2, title="Corallivore", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1820,7 +1950,8 @@ crl.fixed <- plot_model(crl1, line.size=1,
 crl.fixed
 
 
-det.fixed <- plot_model(det1, line.size=1, 
+
+det.fixed <- plot_model(det3, line.size=1, show.zeroinf=F,
                         dot.size=3, value.offset=0.2, title="Detritivore", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1832,7 +1963,8 @@ det.fixed <- plot_model(det1, line.size=1,
 det.fixed
 
 
-exc.fixed <- plot_model(exc1, line.size=1, 
+
+exc.fixed <- plot_model(exc3, line.size=1, show.zeroinf=F,
                         dot.size=3, value.offset=0.2, title="Excavator/scraper", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1844,7 +1976,8 @@ exc.fixed <- plot_model(exc1, line.size=1,
 exc.fixed
 
 
-inv.fixed <- plot_model(inv1, line.size=1, 
+
+inv.fixed <- plot_model(inv2, line.size=1, 
                         dot.size=3, value.offset=0.2, title="Invertivore", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1856,7 +1989,8 @@ inv.fixed <- plot_model(inv1, line.size=1,
 inv.fixed
 
 
-pis.fixed <- plot_model(pis1, line.size=1, 
+
+pis.fixed <- plot_model(pis2, line.size=1, 
                         dot.size=3, value.offset=0.2, title="Piscivore", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1868,7 +2002,8 @@ pis.fixed <- plot_model(pis1, line.size=1,
 pis.fixed
 
 
-plk.fixed <- plot_model(plk1, line.size=1, 
+
+plk.fixed <- plot_model(plk2, line.size=1, 
                         dot.size=3, value.offset=0.2, title="Planktivore", 
                         vline.color="gray70",
                         terms=c("HC.s","MA.s","TA.s","BCM.s","rubble.s",
@@ -1880,6 +2015,7 @@ plk.fixed <- plot_model(plk1, line.size=1,
 plk.fixed
 
 
+
 # Arrange plot panels:
 
 all.FGs <- ggarrange(bcg.fixed, crl.fixed, det.fixed, exc.fixed, 
@@ -1888,20 +2024,24 @@ all.FGs <- ggarrange(bcg.fixed, crl.fixed, det.fixed, exc.fixed,
                                                  1.4,1,1))
 all.FGs
 
-#pdf("plots/Fish-benthos-GLMM.pdf", width=10, height=6)
+
+#pdf("plots/Fish-benthos-GLMM_Jun25.pdf", width=10, height=6)
 #all.FGs
 #dev.off()
 
 
-# Random effects - supplementary material only.
-# Years
-bcg.r[2]
-crl.r[2]
-det.r[2]
-exc.r[2]
-inv.r[2]
-pis.r[2]
-plk.r[2] 
+
+
+# Random effects - supplementary material only
+
+# Years (saved all as 4 x 4")
+bcg.r[1]
+crl.r[1]
+det.r[1]
+exc.r[1]
+inv.r[1]
+pis.r[1]
+plk.r[1] 
 
 
 
